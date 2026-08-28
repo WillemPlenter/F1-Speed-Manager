@@ -1,0 +1,17 @@
+*.log
+TEST-REPORT.md
+source/F1SpeedManager.Checks.exe
+
+.vs/
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+packages/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.nupkg
