@@ -12,6 +12,10 @@ internal static class ClockTests
     {
         CheckArguments();
         CheckProfiles();
+        CheckOverlay();
+        CheckHotkeys();
+        CheckShortcutCapture();
+        CheckLogo();
         using(var process=Process.GetCurrentProcess())
         using(var handle=Native.OpenProcess(Native.WriteAccess,false,process.Id))
         {
@@ -82,6 +86,152 @@ internal static class ClockTests
         Rejected(()=>Program.ParseArguments(new[]{"--inspect","extra"}),"inspection with extra arguments refused");
         Rejected(()=>Program.ParseArguments(new[]{"--self-test","extra"}),"self-test with extra arguments refused");
         Rejected(()=>Program.ParseArguments(new[]{"--unknown"}),"unknown option refused");
+    }
+    static void CheckLogo()
+    {
+        using(var stream=typeof(SpeedForm).Assembly.GetManifestResourceStream("Logo.png"))
+        {
+            Assert(stream!=null,"standalone executable contains logo resource");
+            using(var image=System.Drawing.Image.FromStream(stream))
+                Assert(image.Width>0 && image.Height>0,"embedded logo decodes");
+        }
+        using(var form=new SpeedForm(false))
+        {
+            var version=(System.Reflection.AssemblyInformationalVersionAttribute)Attribute.GetCustomAttribute(typeof(SpeedForm).Assembly,typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+            Assert(form.Text=="F1 Speed Manager "+version.InformationalVersion,"window title matches executable product version");
+            System.Windows.Forms.PictureBox logo=null;
+            foreach(System.Windows.Forms.Control control in form.Controls)
+                if(control is System.Windows.Forms.PictureBox)logo=(System.Windows.Forms.PictureBox)control;
+            Assert(logo!=null && logo.Image!=null,"logo present in program window");
+            Assert(form.ClientRectangle.Contains(logo.Bounds),"logo inside program window");
+            foreach(System.Windows.Forms.Control control in form.Controls)
+                if(control!=logo)Assert(!control.Bounds.IntersectsWith(logo.Bounds),"logo does not cover "+control.GetType().Name);
+            System.Windows.Forms.ComboBox position=null;System.Windows.Forms.CheckBox toggle=null;
+            foreach(System.Windows.Forms.Control control in form.Controls)
+            {if(control is System.Windows.Forms.ComboBox)position=(System.Windows.Forms.ComboBox)control;if(control is System.Windows.Forms.CheckBox)toggle=(System.Windows.Forms.CheckBox)control;}
+            Assert(position.Items.Count==5 && (string)position.Items[4]=="Top center","GUI includes top center as fifth position");
+            var handler=typeof(SpeedForm).GetMethod("HandleHotkey",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);
+            handler.Invoke(form,new object[]{HotkeyAction.PreviousPosition});
+            Assert(position.SelectedIndex==4 && !toggle.Checked,"previous wraps to top center without enabling overlay");
+            handler.Invoke(form,new object[]{HotkeyAction.NextPosition});
+            Assert(position.SelectedIndex==0 && !toggle.Checked,"next wraps to top right without enabling overlay");
+            handler.Invoke(form,new object[]{HotkeyAction.ToggleOverlay});handler.Invoke(form,new object[]{HotkeyAction.PreviousPosition});
+            Assert(position.SelectedIndex==4 && toggle.Checked,"moving visible overlay keeps visibility");
+            var desired=typeof(SpeedForm).GetField("desired",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);
+            Assert((int)desired.GetValue(form)==1,"overlay input never changes extra multiplier");
+        }
+    }
+    static void CheckOverlay()
+    {
+        var fresh=new OverlaySnapshot(42,5,1000);
+        Assert(SpeedOverlay.CanDisplay(fresh,true,42,1100,1000),"fresh active overlay allowed");
+        Assert(!SpeedOverlay.CanDisplay(fresh,false,42,1100,1000),"toggle hides overlay");
+        Assert(!SpeedOverlay.CanDisplay(fresh,true,43,1100,1000),"other foreground process hides overlay");
+        Assert(!SpeedOverlay.CanDisplay(null,true,42,1100,1000),"disconnection hides overlay");
+        Assert(!SpeedOverlay.CanDisplay(fresh,true,42,1401,1000),"stale speed snapshot hides overlay");
+        Assert(!SpeedOverlay.CanDisplay(fresh,true,42,999,1000),"future timestamp rejected");
+        Assert(!SpeedOverlay.CanDisplay(new OverlaySnapshot(42,4,1000),true,42,1100,1000),"unknown speed not displayed");
+        Assert(!SpeedOverlay.CanDisplay(new OverlaySnapshot(0,1,1000),true,0,1100,1000),"missing process rejected");
+        var area=new System.Drawing.Rectangle(-1920,40,1920,1080);
+        foreach(OverlayCorner corner in Enum.GetValues(typeof(OverlayCorner)))
+        {
+            var bounds=SpeedOverlay.CalculateBounds(area,corner,144);
+            Assert(area.Contains(bounds) && bounds.Width==240 && bounds.Height==51,"DPI and negative monitor position "+corner);
+        }
+        var left=SpeedOverlay.CalculateBounds(area,OverlayCorner.TopLeft,96);
+        var right=SpeedOverlay.CalculateBounds(area,OverlayCorner.TopRight,96);
+        Assert(left.Left<right.Left && left.Top==right.Top,"corner selection moves overlay horizontally");
+        var center=SpeedOverlay.CalculateBounds(area,OverlayCorner.TopCenter,96);
+        Assert(center.Top==left.Top && center.Left==area.Left+(area.Width-center.Width)/2,"top center is horizontally centered near top, not screen center");
+        Rejected(()=>SpeedOverlay.CalculateBounds(area,(OverlayCorner)99,96),"invalid overlay position rejected");
+        Assert(SpeedOverlay.CalculateBounds(new System.Drawing.Rectangle(0,0,100,20),OverlayCorner.TopRight,96).IsEmpty,"overlay hidden when client is too small");
+        var small=new System.Drawing.Rectangle(10,20,160,34);
+        Assert(SpeedOverlay.CalculateBounds(small,OverlayCorner.BottomLeft,96)==small,"small valid client bounds clamped");
+    }
+    static void CheckHotkeys()
+    {
+        var defaults=HotkeySettings.Defaults;
+        Assert(HotkeySettings.Parse(defaults.Serialize()).Serialize()==defaults.Serialize(),"hotkeys roundtrip");
+        Assert(defaults[HotkeyAction.ToggleOverlay].Text=="F7" && defaults[HotkeyAction.NextPosition].Text=="F7+Down","shared F7 defaults");
+        Assert(Shortcut.Parse("shift+control+F9+↑").Text=="Ctrl+Shift+F9+Up","canonical modifiers and arrow alias");
+        foreach(string invalid in new[]{"","Up","Ctrl","F7+F7","Ctrl+Ctrl+F2","Win+F2","27","Escape","A+Up","F7+Up+Down","NoSuchKey"})
+            Rejected(()=>Shortcut.Parse(invalid),"reject shortcut "+invalid);
+        Rejected(()=>HotkeySettings.Parse(defaults.Serialize().Replace("Double=F2","Double=F1")),"duplicate shortcut refused");
+        Rejected(()=>HotkeySettings.Parse(defaults.Serialize().Replace("Reset=F6", "")),"missing action refused");
+        Rejected(()=>HotkeySettings.Parse(defaults.Serialize()+"Normal=F9"),"duplicate action refused");
+        Rejected(()=>HotkeySettings.Parse("Mystery=F9"),"unknown action refused");
+        var tracker=new PrefixTracker(defaults);HotkeyAction? action;
+        Assert(!tracker.Process(System.Windows.Forms.Keys.Up,true,0,true,true,out action) && !action.HasValue,"plain arrow passes through");
+        Assert(tracker.Process(System.Windows.Forms.Keys.F7,true,0,true,true,out action) && !action.HasValue,"F7 press waits for release");
+        Assert(tracker.Process(System.Windows.Forms.Keys.F7,true,0,true,true,out action) && !action.HasValue,"F7 repeat does not toggle");
+        Assert(tracker.Process(System.Windows.Forms.Keys.F7,false,0,true,true,out action) && action==HotkeyAction.ToggleOverlay,"F7 alone toggles on release");
+        tracker.Process(System.Windows.Forms.Keys.F7,true,0,true,true,out action);
+        Assert(tracker.Process(System.Windows.Forms.Keys.Up,true,0,true,true,out action) && action==HotkeyAction.PreviousPosition,"held F7 up moves once");
+        Assert(tracker.Process(System.Windows.Forms.Keys.Up,true,0,true,true,out action) && !action.HasValue,"held arrow repeat consumed");
+        Assert(tracker.Process(System.Windows.Forms.Keys.F7,false,0,true,true,out action) && !action.HasValue,"release prefix first never toggles after move");
+        Assert(tracker.Process(System.Windows.Forms.Keys.Up,false,0,true,true,out action) && !action.HasValue,"arrow release still consumed after prefix release");
+        Assert(!tracker.Process(System.Windows.Forms.Keys.Up,true,0,true,true,out action),"next plain arrow free again");
+        tracker.Process(System.Windows.Forms.Keys.F7,true,0,true,true,out action);
+        Assert(tracker.Process(System.Windows.Forms.Keys.Down,true,0,true,true,out action) && action==HotkeyAction.NextPosition,"held F7 down moves");
+        tracker.Process(System.Windows.Forms.Keys.Down,false,0,true,true,out action);
+        Assert(tracker.Process(System.Windows.Forms.Keys.F7,false,0,true,true,out action) && !action.HasValue,"normal release order no accidental toggle");
+        tracker.Process(System.Windows.Forms.Keys.F7,true,0,false,true,out action);
+        Assert(!tracker.Process(System.Windows.Forms.Keys.Up,true,0,false,true,out action) && !action.HasValue,"arrow outside game/tool not consumed");
+        tracker.Process(System.Windows.Forms.Keys.F7,false,0,false,true,out action);
+        Assert(!action.HasValue,"out of scope chord suppresses standalone toggle");
+        tracker.Process(System.Windows.Forms.Keys.F7,true,0,true,true,out action);
+        tracker.Process(System.Windows.Forms.Keys.F7,false,0,true,false,out action);
+        Assert(!action.HasValue,"focus change cancels release action");
+        tracker.Process(System.Windows.Forms.Keys.F7,true,0,true,true,out action);tracker.CancelFallback();
+        tracker.Process(System.Windows.Forms.Keys.F7,false,0,true,true,out action);
+        Assert(!action.HasValue,"modifier introduced cancels fallback");
+        Assert(!tracker.Process(System.Windows.Forms.Keys.A,true,0,true,true,out action),"ordinary typing not captured");
+        var custom=HotkeySettings.Parse(defaults.Serialize().Replace("F7","Ctrl+F9"));
+        tracker=new PrefixTracker(custom);
+        Assert(!tracker.Process(System.Windows.Forms.Keys.F9,true,0,true,true,out action),"custom prefix requires configured modifier");
+        tracker.Process(System.Windows.Forms.Keys.F9,true,2,true,true,out action);
+        Assert(tracker.Process(System.Windows.Forms.Keys.Down,true,2,true,true,out action) && action==HotkeyAction.NextPosition,"custom modifier prefix works");
+        tracker.Process(System.Windows.Forms.Keys.Down,false,2,true,true,out action);
+        tracker.Process(System.Windows.Forms.Keys.F9,false,2,true,true,out action);
+        Assert(!action.HasValue,"custom chord does not toggle");
+    }
+    static void CheckShortcutCapture()
+    {
+        var capture=new ShortcutCapture();
+        Assert(capture.Process(System.Windows.Forms.Keys.F8,true,0).Text=="F8","capture direct F key on press");
+        Assert(capture.Process(System.Windows.Forms.Keys.F8,true,0)==null,"capture ignores function repeat");
+        Assert(capture.Process(System.Windows.Forms.Keys.F8,false,0)==null,"capture release never overwrites shortcut");
+        Assert(capture.Process(System.Windows.Forms.Keys.F9,true,0).Text=="F9","next gesture replaces previous F key");
+        Assert(capture.Process(System.Windows.Forms.Keys.Up,true,0).Text=="F9+Up","capture held prefix and arrow");
+        Assert(capture.Process(System.Windows.Forms.Keys.Up,true,0)==null,"capture ignores arrow repeat");
+        capture.Process(System.Windows.Forms.Keys.F9,false,0);
+        Assert(capture.Process(System.Windows.Forms.Keys.Up,false,0)==null,"prefix first release order keeps chord");
+        capture.Reset();
+        Assert(capture.Process(System.Windows.Forms.Keys.ControlKey,true,2)==null,"modifier alone does not record");
+        Assert(capture.Process(System.Windows.Forms.Keys.F2,true,2).Text=="Ctrl+F2","capture Ctrl plus F key");
+        capture.Process(System.Windows.Forms.Keys.F2,false,2);capture.Process(System.Windows.Forms.Keys.ControlKey,false,0);
+        Assert(capture.Process(System.Windows.Forms.Keys.A,true,6).Text=="Ctrl+Shift+A","capture letter with modifiers");capture.Reset();
+        Rejected(()=>capture.Process(System.Windows.Forms.Keys.B,true,0),"bare letter is rejected, not typed");capture.Reset();
+        Assert(capture.Process(System.Windows.Forms.Keys.F7,true,5).Text=="Alt+Shift+F7","capture multiple modifiers");
+        Assert(capture.Process(System.Windows.Forms.Keys.Down,true,5).Text=="Alt+Shift+F7+Down","capture modifier prefix chord");
+        capture.Process(System.Windows.Forms.Keys.Down,false,5);
+        Assert(capture.Process(System.Windows.Forms.Keys.Up,true,5)==null,"only first chord recorded until prefix released");capture.Reset();
+        capture.Process(System.Windows.Forms.Keys.F7,true,0);
+        Rejected(()=>capture.Process(System.Windows.Forms.Keys.Up,true,2),"modifier change during recording refused");capture.Reset();
+        Assert(capture.Process(System.Windows.Forms.Keys.Escape,true,0)==null,"Escape resets recorder without binding");
+        Assert(capture.Process(System.Windows.Forms.Keys.F4,true,0).Text=="F4","recorder works after reset");capture.Reset();
+        using(var field=new ShortcutField())
+        {
+            field.Text="F1";string feedback=null;field.Feedback=value=>feedback=value;
+            var press=System.Windows.Forms.Message.Create(IntPtr.Zero,0x100,(IntPtr)System.Windows.Forms.Keys.F9,IntPtr.Zero);
+            Assert(field.PreProcessMessage(ref press) && field.Text=="F9","focused field records F key without text editing");
+            var arrow=System.Windows.Forms.Message.Create(IntPtr.Zero,0x100,(IntPtr)System.Windows.Forms.Keys.Down,IntPtr.Zero);
+            Assert(field.PreProcessMessage(ref arrow) && field.Text=="F9+Down","field intercepts navigation key as chord");
+            var release=System.Windows.Forms.Message.Create(IntPtr.Zero,0x101,(IntPtr)System.Windows.Forms.Keys.F9,IntPtr.Zero);field.PreProcessMessage(ref release);
+            var letter=System.Windows.Forms.Message.Create(IntPtr.Zero,0x100,(IntPtr)System.Windows.Forms.Keys.C,IntPtr.Zero);
+            Assert(field.PreProcessMessage(ref letter) && field.Text=="F9+Down" && !string.IsNullOrEmpty(feedback),"invalid letter leaves binding unchanged with feedback");
+            Assert(field.ReadOnly && !field.ShortcutsEnabled,"capture field does not accept arbitrary text");
+        }
     }
     static void CheckProfiles()
     {

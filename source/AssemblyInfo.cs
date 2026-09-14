@@ -3,7 +3,14 @@ using System.Reflection;
 [assembly: AssemblyDescription("Clock-only speed controller for verified F1 Manager 2023 and 2024 Steam builds")]
 [assembly: AssemblyProduct("F1 Speed Manager")]
 [assembly: AssemblyCompany("SkaffaWilly")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
-[assembly: AssemblyInformationalVersion("1.0.0")]
+[assembly: AssemblyVersion(AppVersion.Numeric)]
+[assembly: AssemblyFileVersion(AppVersion.Numeric)]
+[assembly: AssemblyInformationalVersion(AppVersion.Number)]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Willem Plenter (SkaffaWilly)")]
+
+internal static class AppVersion
+{
+    internal const string Number="2.0";
+    internal const string Numeric="2.0.0.0";
+    internal const string WindowTitle="F1 Speed Manager "+Number;
+}
