@@ -15,3 +15,7 @@ packages/
 *.userosscache
 *.sln.docstates
 *.nupkg
+
+*.hotkeys.ini
+*.hotkeys.ini.tmp
+/F1 Speed Manager.exe

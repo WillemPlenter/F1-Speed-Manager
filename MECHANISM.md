@@ -60,6 +60,28 @@ Reset restores a 1x clock slope while keeping the accumulated time offset. Immed
 
 Windows' system clock and QPC implementation are not patched. Imports in other processes or unrelated DLLs are not redirected. No on-disk game files, save files, gameplay-value addresses, DRM, anti-cheat, or security protections are modified or bypassed.
 
+## Optional overlay
+
+The overlay is a separate topmost Windows Forms window with no activation, no taskbar entry, and layered/click-through window styles. It never reads or writes game memory, patches graphics functions, or changes the requested multiplier. F7 toggles only display visibility. Windows documents mouse pass-through for layered windows with `WS_EX_TRANSPARENT`: [Microsoft: layered windows](https://learn.microsoft.com/en-us/windows/win32/winmsg/window-features).
+
+The controller publishes immutable snapshots containing the verified process ID, confirmed active multiplier, and real QPC timestamp after each successful heartbeat. The UI polls those snapshots every 100 ms. A missing, invalid, or more than 0.4-second-old snapshot hides the badge rather than displaying an unconfirmed multiplier. The foreground window must belong to that same verified process and have a visible, non-minimized client area.
+
+Only the overlay HWND is created in a temporary per-monitor DPI context; the main controller window keeps its existing scaling behavior. Native client/monitor coordinates are queried in that context and the overlay uses its own current-monitor DPI. The previous thread context is restored after each scoped operation. This avoids mixing a game's DPI coordinates with DPI virtualization in the controller: [Microsoft: mixed-mode DPI scaling](https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-improvements-for-desktop-applications).
+
+The badge is clamped inside the visible client area and can be placed in four corners or top center. Top center uses the horizontal midpoint and the same top HUD clearance as the upper corners. Overlay errors disable its display without changing speed control. The overlay is hidden immediately when closing starts and disposed with the controller. External desktop windows are not guaranteed visible over true exclusive fullscreen; windowed or borderless mode is preferred. The overlay requires Windows 10 version 1607 or later.
+
+## Configurable input
+
+All nine actions use validated configurable bindings. The application reserves each standalone shortcut and each unique chord prefix with RegisterHotKey before starting the game controller. A shared root is reserved once, and its single action is handled on release instead of accepting duplicate WM_HOTKEY events.
+
+Held-prefix chords use a WH_KEYBOARD_LL hook on a dedicated thread with a message loop. This callback runs in the installing application, not inside the game. It queues UI actions without logging, disk access or synchronous UI calls, and forwards unrelated keys. Modifier state is initialized before installing the hook and tracked from key events because the current asynchronous key state is not yet updated in the callback. [Microsoft: LowLevelKeyboardProc](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelkeyboardproc).
+
+The input state machine retains only necessary modifier bits, the configured held prefix, its focus window and consumed chord keys. It never records ordinary typing. Matching position chords require the foreground tool window or a fresh confirmed snapshot of the verified game's PID. Consumed arrow repeats/releases stay consumed until release, even if the prefix is released first. A chord suppresses the standalone action on prefix release; focus changes and modifier introduction cancel that fallback.
+
+Opening settings unregisters all shortcuts and disposes the prefix hook before recording begins. Read-only recording fields intercept their own focused key messages before text editing, navigation or dialog submission. They record direct keys, Ctrl/Alt/Shift modifiers and function-key prefixes; repeated events and key release never overwrite a captured chord. Focus changes clear pending recording state. No second global recording hook is installed.
+
+Saving temporarily registers all required shortcuts to validate availability, releases them again while the dialog remains open, then persists the validated configuration. Registration or persistence failure retains the previous settings. Closing or cancelling the dialog re-registers the currently saved configuration. Clock heartbeats continue throughout editing, and editing does not request a speed change. An unrecoverable input failure stops the controller and requests normal speed; the native clock lease remains the independent fallback. Closing unregisters all keys and removes the input hook. This input hook does not discover or write game addresses, modify the renderer or alter the clock mechanism.
+
 ## Limitations
 
 QPC can also feed engine frame pacing and profiling. Clock scaling cannot guarantee proportional simulation throughput or identical behavior in every subsystem. The game's own speed changes remain effective. Higher multipliers are experimental; audio synchronization, long-session stability, and deterministic race outcomes are not guaranteed. Only the executable fingerprints above are supported.
