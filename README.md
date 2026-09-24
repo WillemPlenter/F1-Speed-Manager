@@ -6,9 +6,9 @@ made by Willem Plenter (SkaffaWilly)
 
 I made F1 Speed Manager to add an extra speed multiplier to F1 Manager 2023 and 2024 without changing the game's files or editing gameplay values. It is a small standalone Windows application with buttons and global hotkeys. Cheat Engine is not required.
 
-**Version:** 2.0 · **Platform:** Windows x64
+**Version:** 2.1 · **Platform:** Windows x64
 
-Version 2.0 includes the logo, optional in-game speed display, five positions and configurable hotkeys with direct key recording. The title bar displays **F1 Speed Manager 2.0**. The clock controller is unchanged. Input and placement behavior has been checked locally; compatibility with every in-game panel still depends on the race HUD.
+Version 2.1 adds an input guard that prevents keyboard and mouse speed controls from skipping multiple steps while an extra multiplier is active. It also adds a compact colour menu beside the **Hotkeys…** button, with Red, Green, Orange, Blue, Purple, Cyan and Multicolor modes. Red is the default, the selected mode is saved locally and the theme is applied to the main window, hotkey dialog and in-game overlay.
 
 One executable supports both games. It automatically detects the running game and shows its name in the window.
 
@@ -24,6 +24,7 @@ One executable supports both games. It automatically detects the running game an
 3. Wait for **Connected** and check the detected game name. Every connection starts at extra **1x**.
 4. Select a multiplier using the buttons or hotkeys.
 5. Optionally enable **Overlay** or press **F7** to show the extra multiplier in the game.
+6. Optionally select a colour from the compact menu beside **Hotkeys…**.
 
 Keep only one supported game running at a time. If both games or multiple instances are detected, control stops and any connected clock is reset. Close the extra game, then reopen the tool. To switch games normally, close the current game before starting the other; the tool can remain open and the new connection starts at 1x. Close older editions of the tool before using this release.
 
@@ -53,6 +54,12 @@ A shortcut shared by a single action and a held-prefix chord runs its single act
 
 Bindings are saved locally in `F1 Speed Manager.hotkeys.ini` next to the executable, using an atomic replacement when the file already exists. Keep the application in a writable folder. Invalid saved settings stop startup before game access; rename the settings file to restore defaults. Personal settings and logs are not included in the download or source repository.
 
+## Colour modes
+
+The compact menu beside **Hotkeys…** contains Red, Green, Orange, Blue, Purple, Cyan and Multicolor. The list shows four rows at once and scrolls for the remaining choices. Red is selected on first launch.
+
+The choice is saved locally in `F1 Speed Manager.theme.ini` next to the executable and is reused on the next launch. The selected colour applies to the main multiplier, speed buttons, overlay controls, hotkey dialog and in-game overlay. Multicolor restores the separate per-action colour mapping. If the settings file becomes invalid, startup stops before game access; rename or remove that file to restore red. Colour settings, hotkey settings and logs are not included in the download or source repository.
+
 ## In-game overlay
 
 The overlay starts off. The **Overlay: On/Off · F7** button and releasing **F7** alone control the same toggle with the default bindings. Turning the display off does not reset or change the selected speed.
@@ -70,6 +77,12 @@ Use windowed or borderless windowed mode for the external overlay. True exclusiv
 The selected multiplier applies on top of the game's own speed. For example, built-in x16 with an extra 5x targets x80. The displayed number is the extra clock multiplier, not a measurement of the resulting simulation speed. Actual performance varies; the nominal product is not guaranteed.
 
 **Reset removes only the extra acceleration.** If the game is at x16, resetting the tool leaves it at its own x16. The game's pause controls, speed selector, and automatic speed changes remain in control.
+
+### Input guard
+
+The input guard applies only while the verified game is the foreground window and the selected extra multiplier is above 1x. It watches the game's keyboard speed controls (Left/Right and A/D without modifiers) and left mouse presses. It requests extra 1x before forwarding the event, keeps that protection through the short interaction, then silently returns to the selected multiplier. It does not consume the click or key, inject replacement input, read mouse coordinates, or affect controller input.
+
+Because an external application cannot reliably identify which Unreal widget is under the pointer at every resolution, every left click in the foreground game receives the same short protection. The selected mode shown in the tool and overlay remains unchanged during this internal guard period.
 
 The tool does not directly edit money, fuel, tyres, driver statistics, AI parameters, contracts, or saves. Simulation state still advances naturally as the race runs faster.
 
@@ -94,6 +107,7 @@ An **8 KiB clock wrapper** remains in the game's memory at normal rate until the
 - **Unsupported build or hash:** this release does not support that executable. An update requires compatibility review.
 - **Unexpected hook:** close other speed tools and restart the game before retrying.
 - **Hotkey unavailable:** close the application using that key, then reopen this tool.
+- **Input still skips multiple speed steps:** report whether it happened with Left/Right, A/D or a mouse click, the selected extra multiplier, and which game was running.
 
 The application creates `F1 Speed Manager.log` next to the executable for diagnostics. Logs are generated locally and are not included in the release. They may contain local installation paths; review them before sharing.
 
@@ -125,10 +139,10 @@ See [MECHANISM.md](MECHANISM.md) for implementation details and the address-vali
 
 ## Download integrity
 
-The download includes a separate `F1-Speed-Manager-v2.0-win-x64.zip.sha256` file for the ZIP download. In PowerShell, run:
+The release download includes a separate `F1-Speed-Manager-v2.1-win-x64.zip.sha256` file for the ZIP. In PowerShell, run:
 
 ```powershell
-Get-FileHash -LiteralPath '.\F1-Speed-Manager-v2.0-win-x64.zip' -Algorithm SHA256
+Get-FileHash -LiteralPath '.\F1-Speed-Manager-v2.1-win-x64.zip' -Algorithm SHA256
 ```
 
 Compare the resulting hash with the value in the `.sha256` file. `SHA256SUMS.txt` inside the ZIP lists the hashes of the individual packaged files. These checks detect file changes; they are not a digital signature or a guarantee of safety.

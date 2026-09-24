@@ -20,23 +20,25 @@ internal sealed class HotkeyManager : IDisposable
     readonly HotkeySettings settings;
     readonly Func<OverlaySnapshot> snapshot;
     readonly Action<HotkeyAction> post;
+    readonly Action inputGuard;
     readonly Action<string> error;
     readonly List<int> registered=new List<int>();
     readonly HashSet<string> prefixRoots=new HashSet<string>();
     readonly HashSet<Keys> relevant=new HashSet<Keys>();
     readonly PrefixTracker tracker;
-    readonly HookProc callback;
+    readonly HookProc callback,mouseCallback;
     readonly ManualResetEvent started=new ManualResetEvent(false);
     Thread thread;Control dispatcher;ApplicationContext context;
-    IntPtr hook,prefixWindow;
+    IntPtr hook,mouseHook,prefixWindow;
     Exception startupError;
     uint modifierKeys;
     volatile bool stopping;
     bool disposed;
-    internal HotkeyManager(IntPtr window,HotkeySettings settings,Func<OverlaySnapshot> snapshot,Action<HotkeyAction> post,Action<string> error)
+    internal const int InputGuardMilliseconds=175;
+    internal HotkeyManager(IntPtr window,HotkeySettings settings,Func<OverlaySnapshot> snapshot,Action<HotkeyAction> post,Action inputGuard,Action<string> error)
     {
-        mainWindow=window;this.settings=settings;this.snapshot=snapshot;this.post=post;this.error=error;
-        tracker=new PrefixTracker(settings);callback=Keyboard;
+        mainWindow=window;this.settings=settings;this.snapshot=snapshot;this.post=post;this.inputGuard=inputGuard;this.error=error;
+        tracker=new PrefixTracker(settings);callback=Keyboard;mouseCallback=Mouse;
         foreach(HotkeyAction action in Enum.GetValues(typeof(HotkeyAction)))
             if(settings[action].Prefix!=Keys.None){prefixRoots.Add(settings[action].Root);relevant.Add(settings[action].Prefix);relevant.Add(settings[action].Key);}
     }
@@ -55,12 +57,11 @@ internal sealed class HotkeyManager : IDisposable
                 var binding=settings[action];if(binding.Prefix==Keys.None || !roots.Add(binding.Root))continue;
                 Register(200+(int)action,binding.Modifiers,binding.Prefix,binding.Text+" prefix");
             }
-            if(prefixRoots.Count!=0)
-            {
-                thread=new Thread(Run){IsBackground=true,Name="F1 Speed Manager shortcut hook"};thread.SetApartmentState(ApartmentState.STA);thread.Start();
-                if(!started.WaitOne(5000))throw new TimeoutException("Keyboard shortcut initialization timed out.");
-                if(startupError!=null)throw new InvalidOperationException("Keyboard shortcuts could not start: "+startupError.Message,startupError);
-            }
+            // The hook thread also supplies the short mouse/keyboard input guard,
+            // so it stays active even when every configured shortcut is a single key.
+            thread=new Thread(Run){IsBackground=true,Name="F1 Speed Manager input hook"};thread.SetApartmentState(ApartmentState.STA);thread.Start();
+            if(!started.WaitOne(5000))throw new TimeoutException("Input hook initialization timed out.");
+            if(startupError!=null)throw new InvalidOperationException("Input hooks could not start: "+startupError.Message,startupError);
         }
         catch{Dispose();throw;}
     }
@@ -87,18 +88,34 @@ internal sealed class HotkeyManager : IDisposable
                 foreach(int key in modifiers)if(GetAsyncKeyState(key)<0)modifierKeys|=ModifierBit(key);
                 hook=SetWindowsHookEx(13,callback,Native.GetModuleHandle(null),0);
                 Native.Check(hook!=IntPtr.Zero,"Install shortcut keyboard hook");
+                mouseHook=SetWindowsHookEx(14,mouseCallback,Native.GetModuleHandle(null),0);
+                Native.Check(mouseHook!=IntPtr.Zero,"Install input-guard mouse hook");
                 initialized=true;started.Set();if(!stopping)Application.Run(app);
             }
         }
         catch(Exception e)
-        {startupError=e;if(!initialized)started.Set();else if(!stopping)error("Keyboard shortcut hook failed: "+e.Message);}
-        finally{if(hook!=IntPtr.Zero){UnhookWindowsHookEx(hook);hook=IntPtr.Zero;}dispatcher=null;context=null;}
+        {startupError=e;if(!initialized)started.Set();else if(!stopping)error("Input hook failed: "+e.Message);}
+        finally
+        {
+            if(mouseHook!=IntPtr.Zero){UnhookWindowsHookEx(mouseHook);mouseHook=IntPtr.Zero;}
+            if(hook!=IntPtr.Zero){UnhookWindowsHookEx(hook);hook=IntPtr.Zero;}
+            dispatcher=null;context=null;
+        }
     }
     static uint ModifierBit(int key)
     {
         switch(key){case 16:case 160:return 1;case 161:return 2;case 17:case 162:return 4;case 163:return 8;case 18:case 164:return 16;case 165:return 32;case 91:return 64;case 92:return 128;default:return 0;}
     }
     uint Modifiers {get{return ((modifierKeys&3)!=0?4u:0u)|((modifierKeys&12)!=0?2u:0u)|((modifierKeys&48)!=0?1u:0u)|((modifierKeys&192)!=0?8u:0u);}}
+    internal static bool IsSpeedControlKey(Keys key,uint modifiers,bool prefixHeld)
+    {return !prefixHeld && modifiers==0 && (key==Keys.Left || key==Keys.Right || key==Keys.A || key==Keys.D);}
+    internal static bool IsGuardedMouseMessage(int message)
+    {return message==0x201 || message==0x202;}
+    bool GameIsForeground(IntPtr foreground,out uint pid)
+    {
+        GetWindowThreadProcessId(foreground,out pid);
+        return SpeedOverlay.CanDisplay(snapshot(),true,(int)pid,Stopwatch.GetTimestamp(),Stopwatch.Frequency);
+    }
     IntPtr Keyboard(int code,IntPtr message,IntPtr data)
     {
         if(code<0 || stopping)return CallNextHookEx(hook,code,message,data);
@@ -108,9 +125,10 @@ internal sealed class HotkeyManager : IDisposable
         {
             int key=Marshal.ReadInt32(data);uint bit=ModifierBit(key);
             if(bit!=0){if(down){modifierKeys|=bit;tracker.CancelFallback();}else modifierKeys&=~bit;return CallNextHookEx(hook,code,message,data);}
+            IntPtr foreground=GetForegroundWindow();uint pid;bool gameScope=GameIsForeground(foreground,out pid);
+            if(gameScope && IsSpeedControlKey((Keys)key,Modifiers,tracker.Held))inputGuard();
             if(!relevant.Contains((Keys)key))return CallNextHookEx(hook,code,message,data);
-            IntPtr foreground=GetForegroundWindow();uint pid;GetWindowThreadProcessId(foreground,out pid);
-            bool scope=foreground==mainWindow || SpeedOverlay.CanDisplay(snapshot(),true,(int)pid,Stopwatch.GetTimestamp(),Stopwatch.Frequency);
+            bool scope=foreground==mainWindow || gameScope;
             bool heldBefore=tracker.Held;HotkeyAction? action;
             bool consume=tracker.Process((Keys)key,down,Modifiers,scope,!heldBefore || foreground==prefixWindow,out action);
             if(!heldBefore && tracker.Held)prefixWindow=foreground;
@@ -124,6 +142,24 @@ internal sealed class HotkeyManager : IDisposable
             try{var d=dispatcher;var app=context;if(d!=null && app!=null)d.BeginInvoke((Action)(()=>app.ExitThread()));}catch(InvalidOperationException){}
         }
         return CallNextHookEx(hook,code,message,data);
+    }
+    IntPtr Mouse(int code,IntPtr message,IntPtr data)
+    {
+        if(code<0 || stopping)return CallNextHookEx(mouseHook,code,message,data);
+        try
+        {
+            if(IsGuardedMouseMessage(message.ToInt32()))
+            {
+                IntPtr foreground=GetForegroundWindow();uint pid;
+                if(GameIsForeground(foreground,out pid))inputGuard();
+            }
+        }
+        catch(Exception e)
+        {
+            stopping=true;error("Input guard stopped: "+e.Message);
+            try{var d=dispatcher;var app=context;if(d!=null && app!=null)d.BeginInvoke((Action)(()=>app.ExitThread()));}catch(InvalidOperationException){}
+        }
+        return CallNextHookEx(mouseHook,code,message,data);
     }
     public void Dispose()
     {

@@ -226,12 +226,23 @@ internal sealed class Engine : IDisposable
         }
     }
     internal void Set(int rate)
+    {SetRequested(rate,true);}
+    void SetRequested(int rate,bool writeLog)
     {
         PeImage.Require(Allowed(rate),"Unsupported multiplier");
         lock(sync)
         {
             PeImage.Require(installed,"Clock not installed");ValidateBlock();Heartbeat();
-            Write64(Block+StateOffset+48,rate);Log("Requested multiplier "+rate+"x.");
+            Write64(Block+StateOffset+48,rate);if(writeLog)Log("Requested multiplier "+rate+"x.");
+        }
+    }
+    internal bool TrySetInputGuard(int rate)
+    {
+        PeImage.Require(Allowed(rate),"Unsupported input-guard multiplier");
+        lock(sync)
+        {
+            if(!installed || Game==null || Game.HasExited)return false;
+            SetRequested(rate,false);return true;
         }
     }
     internal void Reset()

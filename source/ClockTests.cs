@@ -14,6 +14,7 @@ internal static class ClockTests
         CheckProfiles();
         CheckOverlay();
         CheckHotkeys();
+        CheckThemeSettings();
         CheckShortcutCapture();
         CheckLogo();
         using(var process=Process.GetCurrentProcess())
@@ -89,6 +90,19 @@ internal static class ClockTests
     }
     static void CheckLogo()
     {
+        Assert(F1Theme.Background==System.Drawing.Color.FromArgb(32,32,32) && F1Theme.Surface==System.Drawing.Color.FromArgb(38,38,38),"neutral dark base colors");
+        Assert(F1Theme.Edge==System.Drawing.Color.FromArgb(96,96,96) && F1Theme.Muted==System.Drawing.Color.FromArgb(176,176,176),"neutral edge and muted colors");
+        Assert(F1Theme.Green==System.Drawing.Color.FromArgb(48,209,88) && F1Theme.Red==System.Drawing.Color.FromArgb(255,69,58),"green and red theme colors");
+        Assert(F1Theme.Orange==System.Drawing.Color.FromArgb(255,159,10) && F1Theme.Blue==System.Drawing.Color.FromArgb(10,132,255),"orange and blue theme colors");
+        Assert(F1Theme.Purple==System.Drawing.Color.FromArgb(191,90,242) && F1Theme.Cyan==System.Drawing.Color.FromArgb(100,210,255),"purple and cyan theme colors");
+        Assert(F1Theme.SpeedColor(1)==F1Theme.Green && F1Theme.SpeedColor(2)==F1Theme.Cyan && F1Theme.SpeedColor(3)==F1Theme.Blue && F1Theme.SpeedColor(5)==F1Theme.Orange && F1Theme.SpeedColor(10)==F1Theme.Red,"speed levels have distinct semantic colors");
+        foreach(ColorMode mode in new[]{ColorMode.Red,ColorMode.Green,ColorMode.Orange,ColorMode.Blue,ColorMode.Purple,ColorMode.Cyan})
+        {
+            Assert(F1Theme.SpeedColor(mode,10)==F1Theme.ModeColor(mode),mode+" applies one accent to every speed");
+            Assert(F1Theme.ActionColor(mode,8)==F1Theme.ModeColor(mode),mode+" applies one accent to every action");
+        }
+        Assert(F1Theme.SpeedColor(ColorMode.Multicolor,1)==F1Theme.Green && F1Theme.SpeedColor(ColorMode.Multicolor,10)==F1Theme.Red,"multicolor mode maps speed levels");
+        Assert(F1Theme.ActionColor(ColorMode.Multicolor,5)==F1Theme.Purple && F1Theme.ActionColor(ColorMode.Multicolor,8)==F1Theme.Blue,"multicolor mode maps reset and hotkeys");
         using(var stream=typeof(SpeedForm).Assembly.GetManifestResourceStream("Logo.png"))
         {
             Assert(stream!=null,"standalone executable contains logo resource");
@@ -99,6 +113,7 @@ internal static class ClockTests
         {
             var version=(System.Reflection.AssemblyInformationalVersionAttribute)Attribute.GetCustomAttribute(typeof(SpeedForm).Assembly,typeof(System.Reflection.AssemblyInformationalVersionAttribute));
             Assert(form.Text=="F1 Speed Manager "+version.InformationalVersion,"window title matches executable product version");
+            Assert(form.BackColor==F1Theme.Background,"main window uses shared background color");
             System.Windows.Forms.PictureBox logo=null;
             foreach(System.Windows.Forms.Control control in form.Controls)
                 if(control is System.Windows.Forms.PictureBox)logo=(System.Windows.Forms.PictureBox)control;
@@ -106,10 +121,42 @@ internal static class ClockTests
             Assert(form.ClientRectangle.Contains(logo.Bounds),"logo inside program window");
             foreach(System.Windows.Forms.Control control in form.Controls)
                 if(control!=logo)Assert(!control.Bounds.IntersectsWith(logo.Bounds),"logo does not cover "+control.GetType().Name);
-            System.Windows.Forms.ComboBox position=null;System.Windows.Forms.CheckBox toggle=null;
+            int coloredButtons=0;
             foreach(System.Windows.Forms.Control control in form.Controls)
-            {if(control is System.Windows.Forms.ComboBox)position=(System.Windows.Forms.ComboBox)control;if(control is System.Windows.Forms.CheckBox)toggle=(System.Windows.Forms.CheckBox)control;}
+                if(control is System.Windows.Forms.Button && control.Text.Contains(" · ")){var button=(System.Windows.Forms.Button)control;Assert(button.FlatAppearance.BorderColor==F1Theme.Red,"speed button uses default red accent "+coloredButtons);coloredButtons++;}
+            Assert(coloredButtons==6,"all six speed buttons use the default red mode");
+            System.Windows.Forms.ComboBox position=null,colors=null;System.Windows.Forms.CheckBox toggle=null;System.Windows.Forms.Button hotkeys=null;System.Windows.Forms.Label credit=null;
+            foreach(System.Windows.Forms.Control control in form.Controls)
+            {
+                if(control is System.Windows.Forms.ComboBox && control.AccessibleName=="Overlay position")position=(System.Windows.Forms.ComboBox)control;
+                if(control is System.Windows.Forms.ComboBox && control.AccessibleName=="Color mode")colors=(System.Windows.Forms.ComboBox)control;
+                if(control is System.Windows.Forms.CheckBox)toggle=(System.Windows.Forms.CheckBox)control;
+                if(control is System.Windows.Forms.Button && control.Text=="Hotkeys…")hotkeys=(System.Windows.Forms.Button)control;
+                if(control is System.Windows.Forms.Label && control.Text=="made by SkaffaWilly")credit=(System.Windows.Forms.Label)control;
+            }
             Assert(position.Items.Count==5 && (string)position.Items[4]=="Top center","GUI includes top center as fifth position");
+            Assert(colors!=null && colors.Items.Count==7 && colors.SelectedIndex==(int)ColorMode.Red,"color menu contains seven modes and defaults to red");
+            Assert(colors.DropDownStyle==System.Windows.Forms.ComboBoxStyle.DropDownList && colors.MaxDropDownItems==4 && !colors.IntegralHeight,"color menu is a compact scrollable list");
+            Assert(SpeedForm.ColorModeBackground(ColorMode.Red,System.Windows.Forms.DrawItemState.Selected|System.Windows.Forms.DrawItemState.ComboBoxEdit)==F1Theme.Surface,"closed color menu never keeps the blue Windows selection background");
+            Assert(SpeedForm.ColorModeBackground(ColorMode.Blue,System.Windows.Forms.DrawItemState.Selected)==F1Theme.Tint(F1Theme.Blue,0.24f),"open color menu uses a themed selected row");
+            Assert(SpeedForm.MulticolorTextColor(0)==F1Theme.Red && SpeedForm.MulticolorTextColor(1)==F1Theme.Orange && SpeedForm.MulticolorTextColor(2)==F1Theme.Green,"multicolor label starts red orange green");
+            Assert(SpeedForm.MulticolorTextColor(3)==F1Theme.Cyan && SpeedForm.MulticolorTextColor(4)==F1Theme.Blue && SpeedForm.MulticolorTextColor(5)==F1Theme.Purple,"multicolor label continues cyan blue purple");
+            Assert(SpeedForm.MulticolorTextColor(6)==F1Theme.Red,"multicolor label repeats its six-color sequence");
+            Assert(SpeedForm.OverlayTextColor(ColorMode.Green,true)==F1Theme.Background && SpeedForm.OverlayTextColor(ColorMode.Orange,true)==F1Theme.Background,"light overlay button colors use readable text");
+            Assert(SpeedForm.OverlayTextColor(ColorMode.Red,true)==F1Theme.Red && SpeedForm.OverlayTextColor(ColorMode.Multicolor,true)==F1Theme.Purple,"other enabled overlay buttons retain their accent text");
+            Assert(SpeedForm.OverlayTextColor(ColorMode.Green,false)==System.Drawing.Color.White,"disabled overlay button retains white text");
+            Assert(SpeedForm.OverlayBackgroundColor(ColorMode.Green,true)==F1Theme.Green && SpeedForm.OverlayBackgroundColor(ColorMode.Orange,true)==F1Theme.Orange,"light overlay modes retain their selected backgrounds");
+            Assert(SpeedForm.OverlayBackgroundColor(ColorMode.Green,false)==F1Theme.Surface,"disabled overlay button retains dark surface background");
+            Assert(SpeedForm.OverlayCheckedBackColor(ColorMode.Green)==F1Theme.Green && SpeedForm.OverlayCheckedBackColor(ColorMode.Orange)==F1Theme.Orange,"checked-state painting retains selected backgrounds");
+            Assert(SpeedForm.OverlayCheckedBackColor(ColorMode.Red)==System.Drawing.Color.Empty,"other modes retain their existing checked-state painting");
+            using(var painted=new ThemeToggleButton{Text="Overlay: On · F7",Size=new System.Drawing.Size(160,32),Appearance=System.Windows.Forms.Appearance.Button,FlatStyle=System.Windows.Forms.FlatStyle.Flat,Checked=true,ContrastPaint=true,ContrastBackColor=F1Theme.Green,ForeColor=F1Theme.Background})
+            using(var bitmap=new System.Drawing.Bitmap(160,32))
+            {
+                painted.FlatAppearance.BorderColor=F1Theme.Green;painted.DrawToBitmap(bitmap,new System.Drawing.Rectangle(0,0,160,32));
+                Assert(bitmap.GetPixel(8,8).ToArgb()==F1Theme.Green.ToArgb(),"green overlay button renders a real solid background");
+            }
+            Assert(hotkeys!=null && hotkeys.Right<colors.Left && credit!=null && colors.Right<credit.Left,"color menu is beside Hotkeys without overlap");
+            Assert(form.ClientRectangle.Contains(colors.Bounds),"color menu stays inside the main window");
             var handler=typeof(SpeedForm).GetMethod("HandleHotkey",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);
             handler.Invoke(form,new object[]{HotkeyAction.PreviousPosition});
             Assert(position.SelectedIndex==4 && !toggle.Checked,"previous wraps to top center without enabling overlay");
@@ -160,6 +207,13 @@ internal static class ClockTests
         Rejected(()=>HotkeySettings.Parse(defaults.Serialize().Replace("Reset=F6", "")),"missing action refused");
         Rejected(()=>HotkeySettings.Parse(defaults.Serialize()+"Normal=F9"),"duplicate action refused");
         Rejected(()=>HotkeySettings.Parse("Mystery=F9"),"unknown action refused");
+        foreach(var key in new[]{System.Windows.Forms.Keys.Left,System.Windows.Forms.Keys.Right,System.Windows.Forms.Keys.A,System.Windows.Forms.Keys.D})
+            Assert(HotkeyManager.IsSpeedControlKey(key,0,false),"input guard recognizes game speed key "+key);
+        Assert(!HotkeyManager.IsSpeedControlKey(System.Windows.Forms.Keys.Up,0,false),"input guard ignores unrelated arrow");
+        Assert(!HotkeyManager.IsSpeedControlKey(System.Windows.Forms.Keys.A,2,false),"input guard ignores modified letter");
+        Assert(!HotkeyManager.IsSpeedControlKey(System.Windows.Forms.Keys.Left,0,true),"input guard leaves configured prefix chord alone");
+        Assert(HotkeyManager.IsGuardedMouseMessage(0x201) && HotkeyManager.IsGuardedMouseMessage(0x202),"input guard covers left mouse press and release");
+        Assert(!HotkeyManager.IsGuardedMouseMessage(0x204) && HotkeyManager.InputGuardMilliseconds>=100 && HotkeyManager.InputGuardMilliseconds<=250,"input guard is narrow and ignores right mouse");
         var tracker=new PrefixTracker(defaults);HotkeyAction? action;
         Assert(!tracker.Process(System.Windows.Forms.Keys.Up,true,0,true,true,out action) && !action.HasValue,"plain arrow passes through");
         Assert(tracker.Process(System.Windows.Forms.Keys.F7,true,0,true,true,out action) && !action.HasValue,"F7 press waits for release");
@@ -195,6 +249,22 @@ internal static class ClockTests
         tracker.Process(System.Windows.Forms.Keys.F9,false,2,true,true,out action);
         Assert(!action.HasValue,"custom chord does not toggle");
     }
+    static void CheckThemeSettings()
+    {
+        Assert(ThemeSettings.Defaults.Mode==ColorMode.Red,"red is the default color mode");
+        foreach(ColorMode mode in Enum.GetValues(typeof(ColorMode)))
+        {
+            var settings=new ThemeSettings(mode);
+            Assert(ThemeSettings.Parse(settings.Serialize()).Mode==mode,"color mode roundtrip "+mode);
+        }
+        Assert(ThemeSettings.Parse("# saved choice\nColor=Multicolor\n").Mode==ColorMode.Multicolor,"multicolor setting parses");
+        Rejected(()=>ThemeSettings.Parse(""),"missing color mode refused");
+        Rejected(()=>ThemeSettings.Parse("Mystery=Red"),"unknown color key refused");
+        Rejected(()=>ThemeSettings.Parse("Color=Red\nColor=Blue"),"duplicate color setting refused");
+        Rejected(()=>ThemeSettings.Parse("Color=Rainbow"),"unknown color mode refused");
+        Rejected(()=>ThemeSettings.Parse("Color=0"),"numeric color mode refused");
+        Rejected(()=>ThemeSettings.Parse(new string('x',1025)),"oversized color settings refused");
+    }
     static void CheckShortcutCapture()
     {
         var capture=new ShortcutCapture();
@@ -222,6 +292,7 @@ internal static class ClockTests
         Assert(capture.Process(System.Windows.Forms.Keys.F4,true,0).Text=="F4","recorder works after reset");capture.Reset();
         using(var field=new ShortcutField())
         {
+            Assert(field.BackColor==F1Theme.Input && field.ForeColor==System.Drawing.Color.White,"hotkey field uses shared dark input theme");
             field.Text="F1";string feedback=null;field.Feedback=value=>feedback=value;
             var press=System.Windows.Forms.Message.Create(IntPtr.Zero,0x100,(IntPtr)System.Windows.Forms.Keys.F9,IntPtr.Zero);
             Assert(field.PreProcessMessage(ref press) && field.Text=="F9","focused field records F key without text editing");

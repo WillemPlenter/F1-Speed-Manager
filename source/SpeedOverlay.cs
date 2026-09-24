@@ -35,6 +35,7 @@ internal sealed class SpeedOverlay : Form
     const int Transparent=0x20,ToolWindow=0x80,NoActivate=0x08000000;
     long active=1;
     float scale=1;
+    internal ColorMode ColorMode=ColorMode.Red;
     internal string ToggleHint="F7";
     readonly Font speedFont=new Font("Segoe UI",15,FontStyle.Bold,GraphicsUnit.Pixel);
     readonly Font keyFont=new Font("Segoe UI",10,FontStyle.Regular,GraphicsUnit.Pixel);
@@ -44,7 +45,7 @@ internal sealed class SpeedOverlay : Form
         Text="F1 Speed Manager overlay";FormBorderStyle=FormBorderStyle.None;
         ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;
         AutoScaleMode=AutoScaleMode.None;ClientSize=new Size(160,34);
-        BackColor=Color.FromArgb(20,23,29);TransparencyKey=Color.Magenta;
+        BackColor=F1Theme.Background;TransparencyKey=Color.Magenta;
         DoubleBuffered=true;
     }
     protected override bool ShowWithoutActivation {get{return true;}}
@@ -143,11 +144,11 @@ internal sealed class SpeedOverlay : Form
         base.OnPaint(e);
         var g=e.Graphics;g.SmoothingMode=SmoothingMode.AntiAlias;g.ScaleTransform(scale,scale);
         using(var path=new GraphicsPath())
-        using(var background=new SolidBrush(Color.FromArgb(20,23,29)))
-        using(var border=new Pen(Color.FromArgb(61,66,76)))
-        using(var accent=new SolidBrush(active==1?Color.FromArgb(151,160,174):Color.FromArgb(255,48,48)))
+        using(var background=new SolidBrush(F1Theme.Background))
+        using(var border=new Pen(F1Theme.Edge))
+        using(var accent=new SolidBrush(F1Theme.SpeedColor(ColorMode,active)))
         using(var text=new SolidBrush(Color.White))
-        using(var hint=new SolidBrush(Color.FromArgb(153,160,174)))
+        using(var hint=new SolidBrush(F1Theme.ActionColor(ColorMode,6)))
         {
             path.AddArc(0,0,12,12,180,90);path.AddArc(147,0,12,12,270,90);
             path.AddArc(147,21,12,12,0,90);path.AddArc(0,21,12,12,90,90);path.CloseFigure();

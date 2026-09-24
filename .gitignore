@@ -1,7 +1,14 @@
+# Local diagnostics and build-test executable
 *.log
+*.hotkeys.ini
+*.hotkeys.ini.tmp
+*.theme.ini
+*.theme.ini.tmp
 TEST-REPORT.md
 source/F1SpeedManager.Checks.exe
+/F1 Speed Manager.exe
 
+# Visual Studio workspace and build output
 .vs/
 [Bb]in/
 [Oo]bj/
@@ -10,12 +17,8 @@ source/F1SpeedManager.Checks.exe
 x64/
 x86/
 packages/
-*.user
 *.suo
+*.user
 *.userosscache
 *.sln.docstates
 *.nupkg
-
-*.hotkeys.ini
-*.hotkeys.ini.tmp
-/F1 Speed Manager.exe
